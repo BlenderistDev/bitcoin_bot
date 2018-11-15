@@ -8,7 +8,7 @@ const bot = new Telegraf(TELEGRAM_API_TOKEN, {
 	polling: true
 });
 
-
+//hi
 var UserObject = class{
   constructor(){
     this.id = undefined;
