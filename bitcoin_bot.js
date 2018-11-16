@@ -8,7 +8,6 @@ const bot = new Telegraf(TELEGRAM_API_TOKEN, {
 	polling: true
 });
 
-//hi
 var UserObject = class{
   constructor(){
     this.id = undefined;
@@ -20,7 +19,7 @@ var UserObject = class{
   addAddress(address){
     this.address.push({address:address,tx:[]});
     this.lastcommand = null;
-    writeJsonFile(obj);
+    this.savetoFile;
   }
   addressSearch(address){
     var addressIsHere = false;
@@ -33,13 +32,13 @@ var UserObject = class{
   request(addressIndex){
     var addrData = "";
     var addr = this.address[addressIndex].address;
+    var obj = this;
     https.get("https://chain.api.btc.com/v3/address/"+ addr +"/tx", function(res){
       res.on('data', function(d){
         addrData += d.toString();       
       });
       res.on('end',function(){
          var object = JSON.parse(addrData).data;
-        //console.log(object)
         for (var i=0;i<Math.min(object.total_count,object.pagesize);i++){
           if (object.list[i].balance_diff > 0 && object.list[i].confirmations < 1001){
             obj.checkTx(addressIndex,object.list[i].hash,object.list[i].confirmations,object.list[i].balance_diff)
@@ -82,8 +81,33 @@ var UserObject = class{
       this.savetoFile();
   }
   savetoFile(){
-    writeJsonFile(this);
+    this.writeJsonFile();
   }
+  writeJsonFile(){
+    console.log("write file "+this.id)
+    console.log(JSON.stringify(this).toString())
+    fs.unlink("data/"+this.id+".json",(err)=>{
+      if (err)
+        console.log(err);
+      fs.writeFile("data/"+this.id+".json",JSON.stringify(this),'utf8', function(){});
+    })
+  }
+  
+  static readJsonFile(file){
+    return new Promise(function(success,fail){
+      fs.readFile(file,function(error,data){
+        if (error){
+          console.log("error with reading file:"+file);
+        }
+        else{
+          var obj = JSON.parse(data);
+          obj.__proto__ = new UserObject;
+          success(obj);
+        }
+      })
+    }).catch((error)=>{console.log("error with parsing: "+data);})
+  } 
+
 }
 
 var RequestObject = class{
@@ -91,13 +115,13 @@ var RequestObject = class{
     this.id = id;
     this.address = address;
     this.addressIndex = addressIndex;
-    if (!requestOderSearch(this)){
+    if (!RequestObject.requestOderSearch(this)){
       var l = requestOder.push(this);
     }
   }
   request(){
     var addressIndex = this.addressIndex;
-    readJsonFile("data/"+this.id+".json").then(function(obj){
+    UserObject.readJsonFile("data/"+this.id+".json").then(function(obj){
       obj.request(addressIndex);
       requestOder = requestOder.slice(1);
     })
@@ -108,26 +132,25 @@ var RequestObject = class{
     else
       return false;
   }
-
-
+  static requestOderSearch(obj){
+    var bool = false;
+    requestOder.forEach((element)=>{
+      if (element.competition(obj)==true)
+        bool = true;
+    })
+    return bool;
+  }
 }
-
-
 var requestOder = [];
-function requestOderSearch(obj){
-  var bool = false;
-  requestOder.forEach((element)=>{
-    if (element.competition(obj)==true)
-      bool = true;
-  })
-  return bool;
-}
-
 
 setInterval(() => {
   if (requestOder.length != 0)
     requestOder[0].request();
 }, 1000*10);
+
+
+
+
 function botStart(msg){
   var id = msg.from.id;
   console.log("user "+id+" starts bot");
@@ -143,45 +166,20 @@ function botStart(msg){
       console.log("file for user "+id+" found");
   })
 }
-function readJsonFile(file){
-  return new Promise(function(success,fail){
-    fs.readFile(file,function(error,data){
-      if (error){
-        console.log("error with reading file:"+file);
-      }
-      else{
-        obj = JSON.parse(data);
-        obj.__proto__ = new UserObject;
-        success(obj);
-      }
-    })
-  })
-} 
-function writeJsonFile(obj){
-  console.log("write file "+obj.id)
-  console.log(JSON.stringify(obj).toString())
-  fs.unlink("data/"+obj.id+".json",(err)=>{
-    if (err)
-      console.log(err);
-    fs.writeFile("data/"+obj.id+".json",JSON.stringify(obj),'utf8', function(){});
-  })
-  
-}
-
 bot.start(botStart);
 bot.startPolling();
 bot.command("addaddress",function(msg){
   var id = msg.from.id;
-  readJsonFile("data/"+msg.from.id+".json").then(function(obj){
+  UserObject.readJsonFile("data/"+msg.from.id+".json").then(function(obj){
     obj.lastcommand = "addaddress"
     telegram.sendMessage(id,"Отправь мне биткоин адрес, для которого нужно отслеживать подтверждения");
-    writeJsonFile(obj);
+    obj.savetoFile;
   })
   setTimeout(function(){
-    readJsonFile("data/"+id+".json").then(function(obj){
+    UserObject.readJsonFile("data/"+id+".json").then(function(obj){
       if (obj.lastcommand == "addaddress"){
         obj.lastcommand = "null"
-        writeJsonFile(obj);
+        obj.savetoFile;
         telegram.sendMessage(id,"Ты так и не прислал адрес. Если решишь добавить адрес, воспользуйся командой.");
       }
     })
@@ -189,17 +187,18 @@ bot.command("addaddress",function(msg){
 });
 bot.command("myaddress",function(msg){
   var id = msg.from.id;
-  readJsonFile("data/"+msg.from.id+".json").then(function(obj){
+  UserObject.readJsonFile("data/"+msg.from.id+".json").then(function(obj){
     telegram.sendMessage(id,"Добавленные адреса:");
     obj.address.forEach((elem)=>telegram.sendMessage(id,elem.address))
   })
 });
 bot.on('text',function(msg){
-	readJsonFile("data/"+msg.chat.id+".json").then(function(obj){
+	UserObject.readJsonFile("data/"+msg.chat.id+".json").then(function(obj){
     if (obj.lastcommand == "addaddress")
       checkAddressCorrect(msg.message.text,msg.chat.id)
 	})
 });
+
 
 
 function checkConfirms(){
@@ -208,7 +207,7 @@ function checkConfirms(){
       conlose.error(error);
     data.forEach(function(element){
     if (element){
-      readJsonFile("data/"+element).then(function(data){
+      UserObject.readJsonFile("data/"+element).then(function(data){
         checkNotificationsNeed(data);
       })
     }
@@ -235,7 +234,7 @@ function checkAddressCorrect(msg,id){
         telegram.sendMessage(id,"Некорректный адрес!");
       }
       if (correct == true){
-        readJsonFile("data/"+id+".json").then(function(obj){
+        UserObject.readJsonFile("data/"+id+".json").then(function(obj){
           if (!obj.addressSearch){
             telegram.sendMessage(id,"Записал!");
             obj.addAddress(msg);
