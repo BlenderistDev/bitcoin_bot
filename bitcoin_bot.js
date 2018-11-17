@@ -8,13 +8,12 @@ const bot = new Telegraf(TELEGRAM_API_TOKEN, {
 	polling: true
 });
 
-var UserObject = class{
+class UserObject{
   constructor(){
     this.id = undefined;
     this.lastcommand = null;
+    this.maxConfirms = 2;
     this.address = [];
-    var tx = {hash:undefined,confirms:undefined};
-    this.address.push(tx);
   }
   addAddress(address){
     this.address.push({address:address,tx:[]});
@@ -23,7 +22,7 @@ var UserObject = class{
   }
   addressSearch(address){
     var addressIsHere = false;
-    obj.address.forEach((elem)=>{
+    this.address.forEach((elem)=>{
       if (elem.address == address)
         addressIsHere = true;      
     })
@@ -33,16 +32,21 @@ var UserObject = class{
     var addrData = "";
     var addr = this.address[addressIndex].address;
     var obj = this;
+    var maxConfirms = 2001;//транзакции с количеством подтверждений выше не будут рассматриваться системой.
     https.get("https://chain.api.btc.com/v3/address/"+ addr +"/tx", function(res){
       res.on('data', function(d){
         addrData += d.toString();       
       });
       res.on('end',function(){
-         var object = JSON.parse(addrData).data;
-        for (var i=0;i<Math.min(object.total_count,object.pagesize);i++){
-          if (object.list[i].balance_diff > 0 && object.list[i].confirmations < 1001){
-            obj.checkTx(addressIndex,object.list[i].hash,object.list[i].confirmations,object.list[i].balance_diff)
+        try{
+          var object = JSON.parse(addrData).data;
+          for (var i=0;i<Math.min(object.total_count,object.pagesize);i++){
+            if (object.list[i].balance_diff > 0 && object.list[i].confirmations < (maxConfirms)){
+              obj.checkTx(addressIndex,object.list[i].hash,object.list[i].confirmations,object.list[i].balance_diff)
+            }
           }
+        }catch(error){
+          console.log("error with parsing request object, addrDara="+addrData+", error="+error);
         }
       })
     }).on('error', (e) => {
@@ -56,25 +60,24 @@ var UserObject = class{
   }
   checkTx(addressIndex,hash,confirms,balance_diff){
     var txisHere = false;
-    var maxConfirms = 1000;
     for (var i=0; i<this.address[addressIndex].tx.length;i++ ){
       if (this.address[addressIndex].tx[i].hash == hash){
         txisHere = true;
-        if (confirms >= maxConfirms){    
-          telegram.sendMessage(obj.id,"Новое подтверждение для адреса:"+this.address[addressIndex].address+"\nТранзакция: "+ hash +", количество подтверждений: "+confirms);
+        if (confirms >= this.maxConfirms){    
+          UserObject.sendMessage(this.id,"Новое подтверждение для адреса:"+this.address[addressIndex].address+"\nТранзакция: "+ hash +", количество подтверждений: "+confirms);
           this.address[addressIndex].tx = this.address[addressIndex].tx.slice(0,i).concat(this.address[addressIndex].tx.slice(i+1));
           break;
         }
         else if (this.address[addressIndex].tx[i].confirms < confirms){
-          telegram.sendMessage(this.id,"Новое подтверждение для адреса:"+this.address[addressIndex].address+"\nТранзакция: "+ hash +", количество подтверждений: "+confirms);
+          UserObject.sendMessage(this.id,"Новое подтверждение для адреса:"+this.address[addressIndex].address+"\nТранзакция: "+ hash +", количество подтверждений: "+confirms);
           this.address[addressIndex].tx[i].confirms = confirms;
           break;
         }
       }
     }
-    if (txisHere == false && confirms < maxConfirms ){
+    if (txisHere == false && confirms < this.maxConfirms ){
       this.address[addressIndex].tx.push({hash:hash,confirms:confirms})
-      telegram.sendMessage(obj.id,"Новая транзакция для адреса:"+this.address[addressIndex].address+"\nТранзакция: "+ hash +", количество подтверждений: "+confirms+"\nсумма:"+balance_diff*0.00000001 +"BTC");
+      UserObject.sendMessage(this.id,"Новая транзакция для адреса:"+this.address[addressIndex].address+"\nТранзакция: "+ hash +", количество подтверждений: "+confirms+"\nсумма:"+balance_diff*0.00000001 +"BTC");
       txisHere = true;
     }
     if (txisHere == true)
@@ -92,25 +95,113 @@ var UserObject = class{
       fs.writeFile("data/"+this.id+".json",JSON.stringify(this),'utf8', function(){});
     })
   }
-  
+  checkMaxConfirmsCorrect(msg){
+    console.log(msg)
+    if (!(/^\d+$/.test(msg))){
+      UserObject.sendMessage(this.id,"Это не число!");
+    }
+    else if(msg>2000){
+      UserObject.sendMessage(this.id,"Максимальное количество подтверждений: 2000");
+    }
+    else if(msg <=0){
+      UserObject.sendMessage(this.id,"Максимальное количество подтверждений должно быть больше нуля");
+    }
+    else{
+      UserObject.sendMessage(this.id,"Записал!");
+      this.maxConfirms = msg;
+      this.lastcommand = null;
+      this.savetoFile();
+    }
+  } 
+  checkAddressCorrect(msg){
+    var addrData = "";
+    var obj = this;
+    https.get("https://blockchain.info/rawaddr/"+ msg, function(res){
+      res.on('data', function(d){
+        addrData += d.toString();       
+      });
+      res.on('end',function(){
+        try{
+          var object = JSON.parse(addrData).data;
+          if (!obj.addressSearch(msg)){
+            UserObject.sendMessage(obj.id,"Записал!");
+            obj.addAddress(msg);
+            obj.savetoFile();
+          }
+          else
+            UserObject.sendMessage(obj.id,"Адрес уже отслеживается!");
+        }
+        catch(error){
+          UserObject.sendMessage(obj.id,"Некорректный адрес!");
+          console.log(error);
+        }
+      })
+    }).on('error', (e) => {
+      console.error(e);
+    });
+    
+  }  
   static readJsonFile(file){
     return new Promise(function(success,fail){
-      fs.readFile(file,function(error,data){
+      var path = "data/"+file+".json";
+      fs.readFile(path,function(error,data){
+        var obj;
         if (error){
           console.log("error with reading file:"+file);
+          console.log(error);
+          obj = new UserObject;
+          obj.id=file;
         }
         else{
           var obj = JSON.parse(data);
           obj.__proto__ = new UserObject;
-          success(obj);
         }
+        success(obj);
       })
     }).catch((error)=>{console.log("error with parsing: "+data);})
-  } 
-
+  }
+  static botStart(msg){
+    var id = msg.from.id;
+    console.log("user "+id+" starts bot");
+    fs.readdir("data",function(error,data){
+      if (error)
+        console.log(error);
+      if (data.includes(id+".json")==false){
+          var obj = new UserObject;
+          obj.id = id;
+          obj.savetoFile();
+          console.log("file for user "+id+" created");
+      }
+      else
+        console.log("file for user "+id+" found");
+    })
+  }
+  static sendMessage(id,message){
+    try{
+      telegram.sendMessage(id,message);
+    }
+    catch(error){
+      console.log("error with sending message to user with id:"+id+", message:"+message+", error:"+error);
+    }
+  }
+  static checkConfirms(){
+    fs.readdir("data/",function(error,data){
+      if (error)
+        conlose.error(error);
+      data.forEach(function(element){
+      if (element){
+        var filename = element.toString();
+        var filename = filename.slice(0,filename.length-".json".length);
+        UserObject.readJsonFile(filename).then(function(obj){
+          obj.checkAddress();
+        })
+      }
+      })
+    })
+  }
 }
 
-var RequestObject = class{
+class RequestObject{
   constructor(id,address,addressIndex){
     this.id = id;
     this.address = address;
@@ -121,10 +212,10 @@ var RequestObject = class{
   }
   request(){
     var addressIndex = this.addressIndex;
-    UserObject.readJsonFile("data/"+this.id+".json").then(function(obj){
+    UserObject.readJsonFile(this.id).then(function(obj){
       obj.request(addressIndex);
       requestOder = requestOder.slice(1);
-    })
+    }).catch((err)=>{console.log("error with request:"+err)});
   }
   competition(obj){
     if ((this.id == obj.id) && (this.address == obj.address) && (this.addressIndex == obj.addressIndex))
@@ -142,110 +233,64 @@ var RequestObject = class{
   }
 }
 var requestOder = [];
-
+setInterval(UserObject.checkConfirms,1000*20);
 setInterval(() => {
   if (requestOder.length != 0)
     requestOder[0].request();
 }, 1000*10);
 
 
-
-
-function botStart(msg){
-  var id = msg.from.id;
-  console.log("user "+id+" starts bot");
-  fs.readdir("data",function(error,data){
-    if (error)
-      throw error;
-    if (data.includes(id+".json")==false){
-        var obj = {id:id,lastcommand:null,address:[]};
-        writeJsonFile(obj);
-        console.log("file for user "+id+" created");
-    }
-    else
-      console.log("file for user "+id+" found");
-  })
-}
-bot.start(botStart);
+bot.start(UserObject.botStart);
 bot.startPolling();
 bot.command("addaddress",function(msg){
   var id = msg.from.id;
-  UserObject.readJsonFile("data/"+msg.from.id+".json").then(function(obj){
+  UserObject.readJsonFile(msg.from.id).then(function(obj){
     obj.lastcommand = "addaddress"
-    telegram.sendMessage(id,"Отправь мне биткоин адрес, для которого нужно отслеживать подтверждения");
-    obj.savetoFile;
+    UserObject.sendMessage(id,"Отправь мне биткоин адрес, для которого нужно отслеживать подтверждения");
+    obj.savetoFile();
   })
   setTimeout(function(){
-    UserObject.readJsonFile("data/"+id+".json").then(function(obj){
+    UserObject.readJsonFile(id).then(function(obj){
       if (obj.lastcommand == "addaddress"){
         obj.lastcommand = "null"
-        obj.savetoFile;
-        telegram.sendMessage(id,"Ты так и не прислал адрес. Если решишь добавить адрес, воспользуйся командой.");
+        obj.savetoFile();
+        UserObject.sendMessage(id,"Ты так и не прислал адрес. Если решишь добавить адрес, воспользуйся командой.");
+      }
+    })
+  },1000*60*5) 
+});
+bot.command("maxconfirms",function(msg){
+  console.log("hi");
+  var id = msg.from.id;
+  UserObject.readJsonFile(msg.from.id).then(function(obj){
+    obj.lastcommand = "maxConfirms"
+    UserObject.sendMessage(obj.id,"До скольких подтверждений мне отслеживать транзакциии?");
+    obj.savetoFile();
+  })
+  setTimeout(function(){
+    UserObject.readJsonFile(id).then(function(obj){
+      if (obj.lastcommand == "maxConfirms"){
+        obj.lastcommand = "null"
+        obj.savetoFile();
+        UserObject.sendMessage(obj.id,"Ты так и не прислал число подтверждений. Если решишь изменить число, воспользуйся командой.");
       }
     })
   },1000*60*5) 
 });
 bot.command("myaddress",function(msg){
   var id = msg.from.id;
-  UserObject.readJsonFile("data/"+msg.from.id+".json").then(function(obj){
-    telegram.sendMessage(id,"Добавленные адреса:");
-    obj.address.forEach((elem)=>telegram.sendMessage(id,elem.address))
-  })
+  UserObject.sendMessage(id,"Добавленные адреса:");
+  UserObject.readJsonFile(msg.from.id).then(function(obj){
+    obj.address.forEach((elem)=>UserObject.sendMessage(id,elem.address))
+  }).catch((err)=>{console.log("error with sending adresses:"+err)})
 });
 bot.on('text',function(msg){
-	UserObject.readJsonFile("data/"+msg.chat.id+".json").then(function(obj){
-    if (obj.lastcommand == "addaddress")
-      checkAddressCorrect(msg.message.text,msg.chat.id)
+	UserObject.readJsonFile(msg.chat.id).then(function(obj){
+    if (obj.lastcommand == "addaddress"){
+      obj.checkAddressCorrect(msg.message.text);
+    }
+    if (obj.lastcommand == "maxConfirms"){
+      obj.checkMaxConfirmsCorrect(msg.message.text);
+    }
 	})
 });
-
-
-
-function checkConfirms(){
-  fs.readdir("data/",function(error,data){
-    if (error)
-      conlose.error(error);
-    data.forEach(function(element){
-    if (element){
-      UserObject.readJsonFile("data/"+element).then(function(data){
-        checkNotificationsNeed(data);
-      })
-    }
-    })
-  })
-}
-setInterval(checkConfirms,1000*20);
-function checkNotificationsNeed(obj){
-  obj.checkAddress();
-}
-function checkAddressCorrect(msg,id){
-  var addrData = "";
-  https.get("https://blockchain.info/rawaddr/"+ msg, function(res){
-    res.on('data', function(d){
-      addrData += d.toString();       
-    });
-    res.on('end',function(){
-      var correct = true;
-      try{
-        object = JSON.parse(addrData).data;
-      }
-      catch(error){
-        correct = false;
-        telegram.sendMessage(id,"Некорректный адрес!");
-      }
-      if (correct == true){
-        UserObject.readJsonFile("data/"+id+".json").then(function(obj){
-          if (!obj.addressSearch){
-            telegram.sendMessage(id,"Записал!");
-            obj.addAddress(msg);
-          }
-          else
-            telegram.sendMessage(id,"Адрес уже отслеживается!");
-        })
-      }
-    })
-  }).on('error', (e) => {
-    console.error(e);
-  });
-  
-}
