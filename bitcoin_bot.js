@@ -1,12 +1,20 @@
 const https = require("https");
 const fs = require("fs");
-const Telegraf = require('telegraf');
-const Telegram = require('telegraf/telegram');
+const Telegram = require('node-telegram-bot-api');
+const Agent = require('socks5-https-client/lib/Agent')
 const TELEGRAM_API_TOKEN = "733335360:AAEqeFvvLu5qSG7Fml6CZ5IhwobzYiVdGeg";
-const telegram = new Telegram(TELEGRAM_API_TOKEN);
-const bot = new Telegraf(TELEGRAM_API_TOKEN, {
-	polling: true
-});
+const bot = new Telegram(TELEGRAM_API_TOKEN, {
+	polling: true,
+	request: {
+		agentClass: Agent,
+		agentOptions: {
+			socksHost: 'hvkun.teletype.live',
+      socksPort: 1080,
+			socksUsername: 'telegram',
+			socksPassword: 'telegram'
+		}
+	}
+})
 
 class UserObject{
   constructor(){
@@ -133,7 +141,7 @@ class UserObject{
         }
         catch(error){
           UserObject.sendMessage(obj.id,"Некорректный адрес!");
-          console.log(error);
+          //console.log(error);
         }
       })
     }).on('error', (e) => {
@@ -177,12 +185,9 @@ class UserObject{
     })
   }
   static sendMessage(id,message){
-    try{
-      telegram.sendMessage(id,message);
-    }
-    catch(error){
+    bot.sendMessage(id,message).catch((error)=>{
       console.log("error with sending message to user with id:"+id+", message:"+message+", error:"+error);
-    }
+    });
   }
   static checkConfirms(){
     fs.readdir("data/",function(error,data){
@@ -240,9 +245,9 @@ setInterval(() => {
 }, 1000*10);
 
 
-bot.start(UserObject.botStart);
-bot.startPolling();
-bot.command("addaddress",function(msg){
+//bot.start(UserObject.botStart);
+//bot.startPolling();
+bot.onText(/\/addaddress/,function(msg){
   var id = msg.from.id;
   UserObject.readJsonFile(msg.from.id).then(function(obj){
     obj.lastcommand = "addaddress"
@@ -259,8 +264,7 @@ bot.command("addaddress",function(msg){
     })
   },1000*60*5) 
 });
-bot.command("maxconfirms",function(msg){
-  console.log("hi");
+bot.onText(/\/maxconfirms/,function(msg){
   var id = msg.from.id;
   UserObject.readJsonFile(msg.from.id).then(function(obj){
     obj.lastcommand = "maxConfirms"
@@ -277,20 +281,25 @@ bot.command("maxconfirms",function(msg){
     })
   },1000*60*5) 
 });
-bot.command("myaddress",function(msg){
+bot.onText(/\/myaddress/,function(msg){
   var id = msg.from.id;
   UserObject.sendMessage(id,"Добавленные адреса:");
-  UserObject.readJsonFile(msg.from.id).then(function(obj){
-    obj.address.forEach((elem)=>UserObject.sendMessage(id,elem.address))
-  }).catch((err)=>{console.log("error with sending adresses:"+err)})
+  setTimeout(function(){
+    UserObject.readJsonFile(id).then((obj)=>{
+      obj.address.forEach((elem)=>UserObject.sendMessage(id,elem.address))
+    }).catch((err)=>{console.log("error with sending adresses:"+err)})
+  },1000*2);//задержка для правильного расположения сообщений
 });
 bot.on('text',function(msg){
+  console.log(msg.chat.id)
+  if (/\//.test(msg.text))
+    return 0;
 	UserObject.readJsonFile(msg.chat.id).then(function(obj){
     if (obj.lastcommand == "addaddress"){
-      obj.checkAddressCorrect(msg.message.text);
+      obj.checkAddressCorrect(msg.text);
     }
     if (obj.lastcommand == "maxConfirms"){
-      obj.checkMaxConfirmsCorrect(msg.message.text);
+      obj.checkMaxConfirmsCorrect(msg.text);
     }
-	})
+	}).catch((err)=>{});
 });
