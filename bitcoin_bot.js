@@ -298,3 +298,15 @@ bot.on('text',function(msg){
     }
 	}).catch((err)=>{});
 });
+function checkDataFolder(){
+  fs.readdir("data",function(err,data){
+  if (err){
+    console.log('no data directory');
+    fs.mkdir("data/",(err)=>{
+      if (err)
+       console.error("error with creating data directory "+err);
+    });
+  }
+  })
+}
+checkDataFolder();
