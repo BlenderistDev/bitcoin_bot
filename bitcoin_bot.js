@@ -243,10 +243,6 @@ setInterval(() => {
   if (requestOder.length != 0)
     requestOder[0].request();
 }, 1000*10);
-
-
-//bot.start(UserObject.botStart);
-//bot.startPolling();
 bot.onText(/\/addaddress/,function(msg){
   var id = msg.from.id;
   UserObject.readJsonFile(msg.from.id).then(function(obj){
@@ -291,7 +287,6 @@ bot.onText(/\/myaddress/,function(msg){
   },1000*2);//задержка для правильного расположения сообщений
 });
 bot.on('text',function(msg){
-  console.log(msg.chat.id)
   if (/\//.test(msg.text))
     return 0;
 	UserObject.readJsonFile(msg.chat.id).then(function(obj){
