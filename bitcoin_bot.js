@@ -40,30 +40,43 @@ class UserObject{
     var addrData = "";
     var addr = this.address[addressIndex].address;
     var obj = this;
-    var maxConfirms = 2001;//транзакции с количеством подтверждений выше не будут рассматриваться системой.
-    https.get("https://chain.api.btc.com/v3/address/"+ addr +"/tx", function(res){
+    https.get("https://blockexplorer.com/api/txs/?address="+ addr, function(res){
       res.on('data', function(d){
         addrData += d.toString();       
       });
       res.on('end',function(){
         try{
-          var object = JSON.parse(addrData).data;
-          for (var i=0;i<Math.min(object.total_count,object.pagesize);i++){
-            if (object.list[i].balance_diff > 0 && object.list[i].confirmations < (maxConfirms)){
-              obj.checkTx(addressIndex,object.list[i].hash,object.list[i].confirmations,object.list[i].balance_diff)
-            }
-          }
+          var requestArray = JSON.parse(addrData);
+          var txArray = obj.createTxArray(requestArray,addr);
+          txArray.forEach((elem)=>{
+            obj.checkTx(addressIndex,elem.hash,elem.confirms,elem.balance_diff)
+          })
         }catch(error){
-          console.log("error with parsing request object, addrDara="+addrData+", error="+error);
+          console.error("error with parsing request object, error="+error);
         }
       })
     }).on('error', (e) => {
       console.error(e);
     });
   }
+
+  createTxArray(requestArray,address){
+    var maxConfirms = 2001//транзакции с количеством подтверждений выше не будут рассматриваться системой.
+    var txArray = [];
+    requestArray.txs.forEach((elem)=>{
+      if (elem.confirmations > maxConfirms){
+        return 0;        
+      }
+      for (var i=0; i<elem.vout.length;i++)
+        if (elem.vout[i].scriptPubKey.addresses[0] == address)
+          txArray.push({balance_diff:elem.vout[i].value,hash:elem.txid,confirms:elem.confirmations});
+    })
+    return txArray;
+  }
   checkAddress(){
     for (var i=0; i < this.address.length;i++){
-      new RequestObject(this.id,this.address[i].address,i);
+      this.request(i);
+      //new RequestObject(this.id,this.address[i].address,i); //очередь на отправку сообщений.Закоменть верхнюю надпись и раскоменть эту, чтобы включить
     }
   }
   checkTx(addressIndex,hash,confirms,balance_diff){
@@ -205,7 +218,7 @@ class UserObject{
     })
   }
 }
-
+//ниже класс для очереди
 class RequestObject{
   constructor(id,address,addressIndex){
     this.id = id;
