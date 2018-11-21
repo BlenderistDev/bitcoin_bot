@@ -40,16 +40,18 @@ class UserObject{
     var addrData = "";
     var addr = this.address[addressIndex].address;
     var obj = this;
-    https.get("https://blockexplorer.com/api/txs/?address="+ addr, function(res){
+    var maxConfirms = 2001;//транзакции с количеством подтверждений выше не будут рассматриваться системой.
+    https.get("https://bitaps.com/api/address/transactions/"+ addr, function(res){
       res.on('data', function(d){
         addrData += d.toString();       
       });
       res.on('end',function(){
         try{
-          var requestArray = JSON.parse(addrData);
-          var txArray = obj.createTxArray(requestArray,addr);
+          var txArray = JSON.parse(addrData);
           txArray.forEach((elem)=>{
-            obj.checkTx(addressIndex,elem.hash,elem.confirms,elem.balance_diff)
+            if (elem[3]=="received" && elem[5]<maxConfirms){
+              obj.checkTx(addressIndex,elem[1],elem[5],elem[7])
+            }
           })
         }catch(error){
           console.error("error with parsing request object, error="+error);
@@ -111,8 +113,8 @@ class UserObject{
     console.log("write file "+this.id)
     console.log(JSON.stringify(this).toString())
     fs.unlink("data/"+this.id+".json",(err)=>{
-      if (err)
-        console.log(err);
+      if (err){}
+       // console.log(err);
       fs.writeFile("data/"+this.id+".json",JSON.stringify(this),'utf8', function(){});
     })
   }
