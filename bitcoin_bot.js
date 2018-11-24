@@ -62,19 +62,6 @@ class UserObject{
     });
   }
 
-  createTxArray(requestArray,address){
-    var maxConfirms = 2001//транзакции с количеством подтверждений выше не будут рассматриваться системой.
-    var txArray = [];
-    requestArray.txs.forEach((elem)=>{
-      if (elem.confirmations > maxConfirms){
-        return 0;        
-      }
-      for (var i=0; i<elem.vout.length;i++)
-        if (elem.vout[i].scriptPubKey.addresses[0] == address)
-          txArray.push({balance_diff:elem.vout[i].value,hash:elem.txid,confirms:elem.confirmations});
-    })
-    return txArray;
-  }
   checkAddress(){
     for (var i=0; i < this.address.length;i++){
       this.request(i);
@@ -207,7 +194,7 @@ class UserObject{
   static checkConfirms(){
     fs.readdir("data/",function(error,data){
       if (error)
-        conlose.error(error);
+        console.error(error);
       data.forEach(function(element){
       if (element){
         var filename = element.toString();
